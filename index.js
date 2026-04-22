@@ -6,6 +6,7 @@ const cors = require("cors");
 const http = require("http");
 const { Server } = require("socket.io");
 
+const authMiddleware = require("./middleware/auth.middleware.js");
 const Messages = require("./models/Messages");
 const User = require("./models/User");
 const authRoutes = require("./routes/auth");
@@ -84,7 +85,7 @@ io.on("connection", (socket) => {
         receiver,
         status: { $ne: "seen" },
       },
-      { $set: { status: "seen" } }
+      { $set: { status: "seen" } },
     );
 
     io.to(roomId).emit("all_messages_seen", { sender, receiver });
@@ -103,7 +104,7 @@ io.on("connection", (socket) => {
   });
 });
 
-app.get("/messages", async (req, res) => {
+app.get("/messages", authMiddleware, async (req, res) => {
   const { sender, receiver } = req.query;
 
   const messages = await Messages.find({
@@ -116,7 +117,7 @@ app.get("/messages", async (req, res) => {
   res.json(messages);
 });
 
-app.get("/users", async (req, res) => {
+app.get("/users", authMiddleware, async (req, res) => {
   const { currentUser } = req.query;
 
   const users = await User.find({
