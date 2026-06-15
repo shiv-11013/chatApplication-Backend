@@ -2,13 +2,17 @@ const MessageModel = require("../models/Messages");
 
 function initializeChatSocket(io) {
   const onlineUsers = {};
-
+  const emitOnlineUsers = () => {
+    io.emit("online_users", Object.keys(onlineUsers));
+  };
   io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
 
     socket.on("user_online", async (username) => {
+      socket.username = username;
       onlineUsers[username] = socket.id;
       console.log("Online users:", onlineUsers);
+      emitOnlineUsers();
 
       const deliveredMessages = await MessageModel.find({
         receiver: username,
@@ -50,6 +54,14 @@ function initializeChatSocket(io) {
       console.log(`${socket.id} joined room ${roomId}`);
     });
 
+    socket.on("typing_started", ({ roomId, sender }) => {
+      socket.to(roomId).emit("user_typing", { sender });
+    });
+
+    socket.on("typing_stopped", ({ roomId, sender }) => {
+      socket.to(roomId).emit("user_stopped_typing", { sender });
+    });
+
     socket.on("send_message", async (data) => {
       try {
         const { sender, receiver, message, roomId } = data;
@@ -69,8 +81,12 @@ function initializeChatSocket(io) {
           await savedMessage.save();
         }
         io.to(roomId).emit("receive_message", savedMessage);
+
         const room = io.sockets.adapter.rooms.get(roomId);
-        const isReceiverInRoom = room?.has(receiverSocketId);
+        const isReceiverInRoom = receiverSocketId
+          ? room?.has(receiverSocketId)
+          : false;
+
         if (receiverSocketId && !isReceiverInRoom) {
           io.to(receiverSocketId).emit("receive_message", savedMessage);
         }
@@ -116,11 +132,9 @@ function initializeChatSocket(io) {
     });
 
     socket.on("disconnect", () => {
-      for (const username in onlineUsers) {
-        if (onlineUsers[username] === socket.id) {
-          delete onlineUsers[username];
-          break;
-        }
+      if (socket.username && onlineUsers[socket.username] === socket.id) {
+        delete onlineUsers[socket.username];
+        emitOnlineUsers();
       }
 
       console.log("User disconnected:", socket.id);
